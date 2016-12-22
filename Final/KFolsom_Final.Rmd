@@ -1,0 +1,823 @@
+---
+title: "DATA 605 Final"
+author: "Keith Folsom"
+date: "December 16, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## DATA 605 Computation Mathematics Final
+
+You are to register for Kaggle.com (free) and compete in the House Prices: Advanced Regression Techniques competition.  https://www.kaggle.com/c/house-prices-advanced-regression-techniques.  Do the following:
+ 
+
+Pick one of the quanititative independent variables from the training data set (train.csv) , and define that variable as  X.   Make sure this variable is skewed to the right!  Pick the dependent variable and define it as  Y. 
+
+
+### Required R Packages 
+
+```{r package-setup}
+
+suppressWarnings(suppressMessages(library(knitr)))
+suppressWarnings(suppressMessages(library(RCurl)))
+suppressWarnings(suppressMessages(library(ggplot2)))
+suppressWarnings(suppressMessages(library(e1071)))
+suppressWarnings(suppressMessages(library(dplyr)))
+suppressWarnings(suppressMessages(library(scales)))
+suppressWarnings(suppressMessages(library(cowplot)))
+suppressWarnings(suppressMessages(library(corrplot)))
+suppressWarnings(suppressMessages(library(caret)))
+#suppressWarnings(suppressMessages(library(MASS)))
+suppressWarnings(suppressMessages(library(Rmisc)))
+suppressWarnings(suppressMessages(library(FactoMineR)))
+suppressWarnings(suppressMessages(library(factoextra)))
+
+```
+
+#### Load and Review the Housing Prices Dataset
+
+Review the variables in the training dataset:
+
+```{r, echo = FALSE}
+
+# load the House Prices training dataset from Github
+trainURL <- getURL("https://raw.githubusercontent.com/kfolsom98/DATA605/master/Final/Data/train.csv")
+train <- read.csv(text = trainURL, 
+                  colClasses=c('MiscFeature' = "character", 'PoolQC' = 'character', 'Alley' = 'character',
+                               'MSSubClass' = 'character'),
+                  stringsAsFactors = F, header = T)
+
+str(train)
+
+# load the House Prices test dataset from Github
+testURL <- getURL("https://raw.githubusercontent.com/kfolsom98/DATA605/master/Final/Data/test.csv")
+test <- read.csv(text = testURL, 
+                 colClasses=c('MiscFeature' = "character", 'PoolQC' = 'character', 'Alley' = 'character',
+                               'MSSubClass' = 'character'),
+                 stringsAsFactors = F)
+
+
+# derive a new value TotalPorchSF
+train$TotalPorchSF = with(train, OpenPorchSF + EnclosedPorch + X3SsnPorch  + ScreenPorch)
+
+test$TotalPorchSF <- with(test, OpenPorchSF + EnclosedPorch + X3SsnPorch  + ScreenPorch)
+
+```
+
+##__Probability__   
+
+Calculate as a minimum the below probabilities a through c.  Assume the small letter "x" is estimated as the 3d quartile of the X variable, and the small letter "y" is estimated as the 2d quartile of the Y variable.  Interpret the meaning of all probabilities.  In addition, make a table of counts as shown below. 
+
+
+Determine the number of NA values in the numeric variables.
+
+```{r echo=FALSE}
+
+numeric_var <- names(train)[which(sapply(train, is.numeric))]
+
+```
+
+```{r}
+
+colSums(sapply(train[numeric_var], is.na))
+
+```
+
+`TotalBsmtSF` will be the selected for the X variable and `SalePrice` will be used as the Y variable.  We see that TotalBsmtSF is right skewed with the mean greater than the median.
+
+
+```{r}
+summary(train$TotalBsmtSF)
+
+skewness(train$TotalBsmtSF)
+```
+
+```{r echo=FALSE}
+
+hist(train$TotalBsmtSF, breaks = 100, 
+     main = 'Histogram - Total Basement Sq Ft', xlab = 'Total Basement Sq Ft')
+
+```
+
+### Calculate the following Probabilities
+
+
+
+a. $P(X>x | Y>y)$
+
+b. $P(X>x, Y>y)$
+
+c. $P(X<x | Y>y)$
+
+
+__Formula for Conditional Probability__
+
+$p(x|y) = p(x,y)/p(y)$
+
+
+Define the 3rd quartile for TotalBsmtSF (X) and the 2nd quartile for SalePrice (Y)
+
+```{r}
+
+# TotalBsmtSF
+(xQ3 <- quantile(train$TotalBsmtSF, 0.75))
+
+# SalePrice
+(yQ2 <- quantile(train$SalePrice, 0.5))
+
+```
+
+
+
+a. $P(X>x | Y>y) = 0.2253425/0.4986301 = 0.4519231$
+
+```{r}
+
+numerator <- filter(train, SalePrice > yQ2 & TotalBsmtSF > xQ3) %>% tally()/nrow(train)
+
+denominator <- filter(train, SalePrice > yQ2) %>% tally()/nrow(train)
+
+(a <- numerator/denominator)
+
+```
+
+
+
+b. $P(X>x, Y>y) = 0.25 * 0.4986301 = 0.1246575$
+
+```{r}
+Xx <- filter(train, TotalBsmtSF > xQ3) %>% tally()/nrow(train)
+Yy <- filter(train, SalePrice > yQ2) %>% tally()/nrow(train)
+
+(b <- Xx * Yy)
+
+```
+
+c. $P(X<x | Y>y) = 0.2732877/0.4986301 = 0.5480769$
+
+```{r}
+
+numerator <- filter(train, SalePrice > yQ2 & TotalBsmtSF < xQ3) %>% tally()/nrow(train)
+
+denominator <- filter(train, SalePrice > yQ2) %>% tally()/nrow(train)
+
+(c <- numerator/denominator)
+
+```
+
+```{r, echo=FALSE, eval = FALSE}
+
+#Row 1:
+filter(train, TotalBsmtSF <= xQ3 & SalePrice <= yQ2) %>% tally()
+filter(train, TotalBsmtSF <= xQ3 & SalePrice > yQ2) %>% tally()
+filter(train, TotalBsmtSF <= xQ3) %>% tally()
+
+#Row 2:
+filter(train, TotalBsmtSF > xQ3 & SalePrice <= yQ2) %>% tally()
+filter(train, TotalBsmtSF > xQ3 & SalePrice > yQ2) %>% tally()
+filter(train, TotalBsmtSF > xQ3) %>% tally()
+
+#Row 3:
+filter(train, SalePrice <= yQ2) %>% tally()
+filter(train, SalePrice > yQ2) %>% tally()
+nrow(train)
+
+```
+
+x/y            | <=2d quartile | >2d quartile | Total   
+---------------|---------------|--------------|--------
+<=3d quartile  |  696          |  399         | 1095
+>3d quartile   |   36          |  329         |  365
+Total          |  732          |  728         | 1460
+
+
+
+###Does splitting the training data in this fashion make them independent? 
+
+Splitting them in this manner doesn't make them independent, although it allows for testing independence below using the chi-squared test.
+
+Let A be the new variable counting those observations above the 3d quartile for X, and let B be the new variable counting those observations above the 2d quartile for Y.    
+
+Does $P(A|B)=P(A)P(B)$?   Check mathematically, and then evaluate by running a Chi Square test for association.
+
+
+$P(A) = 365/1460 = 0.25$  
+$P(B) = 728/1460 = 0.4986301$  
+
+$P(A)P(B)$ = 0.25 * 0.4986301  = 0.1246575
+
+We know that $P(A|B)$ = 0.4519231; therefore $P(A|B)! =P(A)P(B)$ which suggests X and Y are not independent.
+
+###Evaluate by running a Chi Square test for association on x and y.
+
+
+Test the hypothesis whether the X is independent of Y at a level at .05 significance level.
+
+```{r}
+# matrix values are from the table above
+mat <- matrix(c(696, 399, 36, 329), 2, 2, byrow=T) 
+
+chisq.test(mat, correct=TRUE) 
+
+```
+
+As the p-value is significantly less than the .05 significance level, we reject the null hypothesis that the X is independent of Y.  The Chi-squared test indicates dependence between X and Y (TotalBsmtSF and SalePrice).  
+
+
+##__Descriptive and Inferential Statistics__ 
+
+Provide univariate descriptive statistics and appropriate plots for the training data set.  
+
+Numeric Variables listed below:
+
+__LotFrontage :__ Linear feet of street connected to property   
+__LotArea       :__  Lot size in square feet     
+__OverallQual   :__  Rates the overall material and finish of the house   
+__OverallCond   :__  Rates the overall condition of the house       
+__YearBuilt     :__  Original construction date     
+__YearRemodAdd  :__  Remodel date (same as construction date if no remodeling or additions)   
+__MasVnrArea    :__  Masonry veneer area in square feet      
+__BsmtFinSF1    :__  Type 1 finished square feet      
+__BsmtFinSF2    :__  Type 2 finished square feet    
+__BsmtUnfSF     :__  Unfinished square feet of basement area      
+__TotalBsmtSF   :__  Total square feet of basement area    
+__1stFlrSF      :__  First Floor square feet       
+__2ndFlrSF      :__  Second floor square feet     
+__LowQualFinSF  :__  Low quality finished square feet (all floors)    
+__GrLivArea     :__  Above grade (ground) living area square feet      
+__BsmtFullBath  :__  Basement full bathrooms   
+__BsmtHalfBath  :__  Basement half bathrooms  
+__FullBath      :__  Full bathrooms above grade       
+__HalfBath      :__  Half baths above grade      
+__BedroomAbvGr  :__  Bedrooms above grade (does NOT include basement bedrooms)  
+__KitchenAbvGr  :__  Kitchens above grade  
+__TotRmsAbvGrd  :__  Total rooms above grade (does not include bathrooms)   
+__Fireplaces    :__  Number of fireplaces  
+__GarageYrBlt   :__  Year garage was built   
+__GarageCars    :__  Size of garage in car capacity      
+__GarageArea    :__  Size of garage in square feet     
+__WoodDeckSF    :__  Wood deck area in square feet      
+__OpenPorchSF   :__  Open porch area in square feet     
+__EnclosedPorch :__  Enclosed porch area in square feet  
+__3SsnPorch     :__  Three season porch area in square feet     
+__ScreenPorch   :__  Screen porch area in square feet     
+__PoolArea      :__  Pool area in square feet       
+__MiscVal       :__  $Value of miscellaneous feature         
+__MoSold        :__  Month Sold (MM)         
+__YrSold        :__  Year Sold (YYYY)        
+__SalePrice     :__  Sale Price of the House   
+
+Generate descriptive statistics on the numerical variables in the training dataset.
+
+```{r, echo = FALSE}
+
+ summary(train[numeric_var])
+
+```
+
+
+### Plots
+
+```{r echo =F}
+
+
+
+hist(train$LotArea, breaks = 100, 
+     main = 'Histogram - Lot Area', xlab = 'Lot Size Sq Ft')
+
+p2 <- ggplot(train, aes(x = X1stFlrSF)) + geom_dotplot(binwidth = 50) + labs(x="First Floor Sq Ft")
+
+p3 <- train %>% filter(X2ndFlrSF > 0 ) %>%
+      ggplot( aes(x = X2ndFlrSF)) + geom_dotplot(binwidth = 35) + labs(x="Second Floor Sq Ft")
+
+p4 <- ggplot(train, aes(x = GrLivArea)) + geom_dotplot(binwidth = 55) + labs(x="Above Ground Sq Ft")
+
+# show plots 
+
+plot_grid(p2, p3, p4, align='v')
+
+```
+
+---
+
+```{r echo = F}
+p5 <-train %>% filter(GarageArea > 0 ) %>%
+ggplot(aes(x = GarageArea)) + geom_dotplot(binwidth = 15) + labs(x="Garage Area Sq ft")
+
+p6 <-ggplot(train, aes(x = TotalPorchSF)) + geom_dotplot(binwidth = 15) + labs(x="Total Porch Sq ft")
+
+p7 <-ggplot(train, aes(x = TotalBsmtSF)) + geom_dotplot(binwidth = 50) + labs(x="Total Basement Sq ft") +scale_x_continuous(label=comma)
+
+
+p8 <-ggplot(train, aes(x = SalePrice)) + geom_dotplot(binwidth = 10000) +scale_x_continuous(label=comma)
+
+plot_grid(p5, p6, p7, p8,  align='h')
+
+```
+
+---
+
+
+```{r, echo = F}
+
+
+
+h1 <- ggplot(data=train, aes(x=factor(MSSubClass))) + stat_count() + xlab('Type of Building') + theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+  
+h2 <-ggplot(data=train, aes(x=factor(BldgType))) + stat_count() + xlab('Building Type') + theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+
+
+h3 <-ggplot(data=train, aes(x=factor(HouseStyle))) + stat_count() + xlab('Style of Dwelling') + theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+
+plot_grid(h1, h2, h3, align='h')
+
+```
+
+---
+
+```{r, echo = F}
+#OverallQual: Rates the overall material and finish of the house
+#OverallCond: Rates the overall condition of the house
+
+h4 <- ggplot(data=train, aes(x=factor(OverallQual))) + stat_count() + xlab('Rating of House Quality') + theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+  
+h5 <- ggplot(data=train, aes(x=factor(OverallCond))) + stat_count() + xlab('Rating of House Condition') + theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+
+plot_grid(h4, h5, align='h')
+
+```
+
+---
+
+
+```{r, echo = F}
+
+
+
+h6 <- ggplot(data=train, aes(x=factor(BsmtFullBath))) + stat_count() + xlab('Number Full Bath - Basement') + theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+  
+h7 <- ggplot(data=train, aes(x=factor(BsmtHalfBath))) + stat_count() + xlab('Number Half Bath - Basement') + theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+
+h8 <- ggplot(data=train, aes(x=factor(FullBath))) + stat_count() + xlab('Number Full Bath - Above Grade') + theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+  
+h9 <- ggplot(data=train, aes(x=factor(HalfBath))) + stat_count() + xlab('Number Half Bath - Above Grade') + theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+
+plot_grid(h6, h7, h8, h9, align='h')
+
+
+```
+
+---
+
+
+```{r, echo = F}
+
+
+
+h10 <- ggplot(data=train, aes(x=factor(BedroomAbvGr))) + stat_count() + xlab('Above Grade Bedrooms') + theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+
+h11 <- ggplot(data=train, aes(x=factor(KitchenQual))) + stat_count() + xlab('Kitchen Quality') + theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+  
+h12 <- ggplot(data=train, aes(x=factor(GarageType))) + stat_count() + xlab('Garage Type') + theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+
+
+plot_grid(h10, h11, h12, align='h')
+
+
+```
+
+###__Overall House Quality and Condition Compared to Sale Price__
+
+```{r, echo = F}
+
+
+train %>% select(OverallQual, SalePrice) %>% ggplot(aes(factor(OverallQual), SalePrice)) + geom_boxplot() + theme(axis.text.x = element_text(angle = 90, hjust =1)) + xlab('Overall Quality') + scale_y_continuous(labels=comma)
+
+
+train %>% select(OverallCond, SalePrice) %>% ggplot(aes(factor(OverallCond), SalePrice)) + geom_boxplot() + theme(axis.text.x = element_text(angle = 90, hjust =1)) + xlab('Overall Condition') + scale_y_continuous(labels=comma)
+
+```
+
+###__Above Ground Living Area and Sale Price__
+
+```{r echo = F}
+train$GrLivAreaRange <- 
+                       cut(train$GrLivArea, 
+                       breaks = c(-Inf, 999, 1999, 2999, 3999, 4999, Inf), 
+                       labels = c("0 - 999 Sq Ft", "1,000 - 1,999 Sq Ft", "2,000 - 2,999 Sq Ft", "3,000 - 3,999 Sq Ft", "4,000 - 4,999 Sq Ft", "5,000+"), 
+                       right = FALSE)
+
+train %>% select(GrLivAreaRange, SalePrice) %>% ggplot(aes(factor(GrLivAreaRange), SalePrice)) + geom_boxplot() + theme(axis.text.x = element_text(angle = 90, hjust =1)) + xlab('Above Grade Living Area') + scale_y_continuous(labels=comma)
+
+```
+
+###__House Price Compared to Year Built__
+
+```{r echo = F}
+
+train$YearBuiltRange <- 
+cut(train$YearBuilt, 
+                       breaks = c(-Inf, 1899, 1909, 1919, 1929, 1939, 1949, 1959, 1969, 1979, 1989, 1999, 2009, Inf), 
+                       labels = c("Prior 1900", "1900s", "1910s", "1920s", "1930s", "1940s", "1950s", "1960s",
+                                  "1970s", "1980s", "1990s", "2000s", "2010s"), 
+                       right = FALSE)
+
+train %>% select(YearBuiltRange, SalePrice) %>% ggplot(aes(factor(YearBuiltRange), SalePrice)) + geom_boxplot() + theme(axis.text.x = element_text(angle = 90, hjust =1)) + xlab('Decade') + scale_y_continuous(labels=comma)
+
+
+```
+
+### Barplots of Sale-related Variables:
+  
+
+```{r, echo = F}
+
+# SaleType: Type of sale
+s1 <- ggplot(data=train, aes(x=factor(MoSold))) + stat_count() + xlab('Month Sold') + theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+
+#YrSold: Year Sold (YYYY)
+
+s2 <- ggplot(data=train, aes(x=factor(YrSold))) + stat_count() + xlab('Year Sold') + theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+
+#SaleType: Type of sale
+
+s3 <- ggplot(data=train, aes(x=factor(SaleType))) + stat_count() + xlab('Sale Type') + theme_light() + 
+  theme(axis.text.x = element_text(angle = 90, hjust =1))
+  
+  
+# SaleCondition: Condition of sale
+  
+s4 <- ggplot(data=train, aes(x=factor(SaleCondition))) + stat_count() + xlab('Sale Condition') + theme_light() + 
+    theme(axis.text.x = element_text(angle = 90, hjust =1))
+
+
+plot_grid(s1, s2, s3, s4, align='h')
+  
+```
+
+
+
+###__Provide a scatterplot of X and Y__
+X = TotalBsmtSF    
+Y = SalePrice  
+
+```{r, echo = F}
+
+
+ggplot(train, aes(x=TotalBsmtSF, y=SalePrice)) + geom_point(shape=1)  + geom_smooth(method=lm) + 
+labs(x="Total Basement Sq Ft", 
+                y = "House Sale Price ($)",  title= "Total Basement Area vs. Sale Price") + scale_y_continuous(labels=comma)
+                
+
+```
+
+##Correlation
+
+
+Derive a correlation matrix for two of the quantitative variables you selected.  
+
+Plot the correlation between LotArea, TotalBsmtSF, BsmtFinSF1, GrLivArea, GarageArea, PoolArea, TotalPorchSF, SalePrice:
+
+```{r}
+
+cor_data <- select(train, LotArea, TotalBsmtSF, BsmtFinSF1, GrLivArea, GarageArea, PoolArea, TotalPorchSF, SalePrice)
+
+mat <- cor(cor_data)
+mat
+
+corrplot(mat, method="square")
+
+```
+
+Looking at the resulting correlation plot, we see that Total Basement Square Feet, Above Ground Living Area, and Garage Area are the variables with the highest correlation with Sales Price.  The X variable being tested, TotalBsmtSF, has a high positive correlation with SalePrice.
+
+
+Provide a 95% CI for the difference in the mean of the variables.  
+
+```{r}
+
+t.test(train$TotalBsmtSF, train$SalePrice) 
+
+
+```
+
+In the house training dataset, the mean total basement area is 1057.429 and the mean sale price of a house is 180921.196.  The 95% confidence interval of the difference in mean sale price is between 175,785.3 and 183,942.2.
+
+We see a very small p-value (< 0.5) which leads us to reject the null hypothesis. There is strong evidence of a mean price increase between basement area and sales price, which is indicative of a relationship between these two variables.
+
+
+Derive a correlation matrix for two of the quantitative variables you selected.  
+
+Test the hypothesis that the correlation between these variables is 0 and provide a 99% confidence interval.  
+Discuss the meaning of your analysis.
+
+```{r}
+
+cor.test(train$TotalBsmtSF, train$SalePrice, method = "pearson" , conf.level = 0.99)
+
+```
+
+Results show that we reject the null hypothesis that the correlation between basement area and sale price is 0.  Indeed we see that basement area and sales price have a strong, postive correlation of 0.613.
+
+
+##__Linear Algebra and Correlation.__
+
+
+Invert your correlation matrix. (This is known as the precision matrix and contains variance inflation factors on the diagonal.) 
+
+```{r}
+
+xydata <- select(train, TotalBsmtSF, SalePrice)
+
+cormatrix <- cor(xydata)
+cormatrix
+
+precmatrix <- solve(cormatrix)
+
+precmatrix
+
+```
+
+
+Multiply the correlation matrix by the precision matrix, and then multiply the precision matrix by the correlation matrix. 
+
+```{r}
+
+cormatrix %*% precmatrix
+
+precmatrix %*% cormatrix
+
+
+```
+
+Both matrix operations return the identity matrix.
+
+### Conduct principle components analysis and interpret.  Discuss. 
+
+
+Principal Component Analysis (PCA) is used to extract the important information from a multivariate set of data and to express this information as a set of new variables called principal components.  Essentially PCA allows for the reduction of dimensionality of a dataset.
+
+The PCA analysis will consider the following variables and use the `FactoMineR` and `factoextra` packages.  
+* LotArea  
+* TotalBsmtSF  
+* BsmtFinSF1  
+* GrLivArea   
+* GarageArea   
+* PoolArea  
+* TotalPorchSF (derived from OpenPorchSF + EnclosedPorch + X3SsnPorch  + ScreenPorch)  
+
+
+```{r}
+
+house_data <- select(train, LotArea, TotalBsmtSF, BsmtFinSF1, GrLivArea, GarageArea, PoolArea, TotalPorchSF)
+
+```
+
+Call the `PCA` function using scaling, number of dimensions to retain = 5, and graph = TRUE
+```{r}
+
+house.pca = PCA(house_data, scale.unit=TRUE, ncp=5, graph=T)
+
+```
+
+The proportion of the total variation explained by the principal components is shown below:
+
+```{r, echo=FALSE}
+
+kable(head(house.pca$eig[, 1:2]))
+
+```
+
+We see that component 1 accounts for 35.7% of the variance with an eigenvalue of 2.5. The inclusion of component 2 accounts for 50.64% of the total variation.
+
+
+__Scree plot:__
+
+```{r, echo=FALSE}
+
+fviz_screeplot(house.pca, ncp=8)
+
+```
+
+Inspecting the scree plot, we see the "knee" at the inclusion of two components.
+
+
+Correlation between the principal components and the variable:
+
+```{r, echo=FALSE}
+
+kable(head(house.pca$var$coord))
+
+```
+
+The `FactoMineR` function `dimdesc()` provides this with p-values:
+
+```{r}
+
+# show correlation for the first 3 components
+dimdesc(house.pca, axes=c(1, 2, 3))
+
+```
+
+For Component 1, TotalBsmtSF, GrLivArea, and GarageArea are the mostly highly correlated variables, with TotalBsmtSF being the highest at 0.809.
+
+Component 2 sees the highest correlation with the variable TotalPorchSF.
+Component 3 sees the highest correlation with the variable PoolArea.
+
+
+
+Component scores are given by :
+
+```{r}
+
+sweep(house.pca$var$coord,2,sqrt(house.pca$eig[1:ncol(house.pca$var$coord),1]),FUN="/")
+
+```
+
+Based on the PCA, we can derive component 1 as shown below:
+
+$PC1 = 0.299 * LotArea + 0.511 * TotalBsmtSF + 0.397 * BsmtFinSF1 + 0.461* GrLivArea + 0.448 * GarageArea  
+         + 0.179 * PoolArea    + 0.2111 * TotalPorchSF$
+
+
+Include the supplemental variable OverallQualityRange, where Q1 is on the low end and Q5 is on the high end of the grouping.
+
+
+```{r, echo = FALSE}
+train$OverallQualRange <- 
+cut(train$OverallQual, 
+                       breaks = c(-Inf, 2, 4, 6, 8,  Inf), 
+                       labels = c("Q1", "Q2", "Q3", "Q4", "Q5"), 
+                       right = FALSE)
+                      
+fviz_pca_ind(house.pca,  label="none", habillage=train$OverallQualRange)
+
+```
+
+
+##__Calculus-Based Probability & Statistics__
+
+Many times, it makes sense to fit a closed form distribution to data.  For your variable that is skewed to the right, shift it so that the minimum value is above zero.  
+
+Then load the MASS package and run fitdistr to fit an exponential probability density function.
+(See https://stat.ethz.ch/R-manual/R-devel/library/MASS/html/fitdistr.html ). 
+
+Find the optimal value of $\lambda$??? for this distribution, and then take 1000 samples from this exponential distribution using this value (e.g., rexp(1000, ???)).  Plot a histogram and compare it with a histogram of your original variable.   Using the exponential pdf, find the 5th and 95th percentiles using the cumulative distribution function (CDF).   Also generate a 95% confidence interval from the empirical data, assuming normality.  Finally, provide the empirical 5th percentile and 95th percentile of the data.  Discuss. 
+
+
+```{r}
+suppressWarnings(suppressMessages(library(MASS)))
+
+min(train$TotalBsmtSF)
+
+# shift TotalBsmtSF above 0 by adding a very small number 
+
+TotalBsmtSF <- train$TotalBsmtSF + 0.0000001
+
+min(TotalBsmtSF)
+
+```
+
+Derive the exponential distribution:
+
+```{r}
+
+fit <- fitdistr(TotalBsmtSF, "exponential")
+
+# find lambda
+
+(lambda <- fit$estimate)
+
+```
+
+Create the sample of 1000
+
+```{r}
+
+sample <- rexp(1000, lambda)
+
+```
+
+__Histograms - Simulated vs. Observed__
+
+```{r, echo = FALSE}
+hist(sample, breaks = 100, 
+     main = 'Simulated', xlab = 'Total Basement Sq Ft')
+     
+hist(train$TotalBsmtSF, breaks = 100, 
+     main = 'Observed', xlab = 'Total Basement Sq Ft')
+
+```
+
+Using the exponential pdf, find the 5th and 95th percentiles using the cumulative distribution function (CDF).
+
+Percentile is given by:
+
+$$log(1 - P)/-\lambda$$
+where P = Percentile
+
+```{r}
+# simulated
+cdf.p5 <- log(1 - .05)/-lambda
+csf.p95 <- log(1 - .95)/-lambda
+
+
+obs.p5 <- quantile(train$TotalBsmtSF, 0.05)
+obs.p95 <- quantile(train$TotalBsmtSF, 0.95)
+
+```
+
+
+Data       |  5th Percentile | 95th Percentile    
+-----------|-----------------|--------
+Simulated  | 54.23904        | 3167.776  
+Observed   | 519.3           | 1753.0
+
+
+Calculated a 95% confidence interval from the empirical data, assuming normality.
+
+```{r}
+
+CI(train$TotalBsmtSF, 0.95)
+
+```
+
+With 95% confidence, the mean of TotalBsmtSF is between 1034.908 and 1079.951.  The exponential distribution would not be a good fit in this case.  We see that the center of the exponential distribution is shifted left as compared the empirical data.  Additionally we see more spread in the exponential distribution.  
+
+
+
+## Modeling
+
+Build some type of regression  model and submit your model to the competition board.  Provide your complete model summary and results with analysis.  Report your Kaggle.com  user name and score. 
+
+
+
+
+```{r, eval=FALSE}
+
+# create the training dataset, limited to numeric variables
+numeric_var <- names(train)[which(sapply(train, is.numeric))]
+house.train <- train[numeric_var]
+
+# create the test dataset, limited to numeric variables
+numeric_var <- names(test)[which(sapply(test, is.numeric))]
+house.test <- test[numeric_var]
+
+# replace missing values with 0
+house.test[is.na(house.test)] <- 0
+
+# Use the train function from the caret package to build a Random Forest modle
+rfFit <-train(SalePrice ~.,
+              data=house.train,
+              method="rf",
+              trControl=trainControl(method="cv",number=5),
+              prox=TRUE, importance = TRUE,
+              allowParallel=TRUE)
+
+# show the model summary          
+rfFit
+
+# display the variables determined to be the most relevant
+dotPlot(varImp(rfFit), main = "Random Forest Model - Most Relevant Variables")
+
+# predict              
+pred_rf <- predict(rfFit, house.test)
+
+# format 
+submission <- as.data.frame(cbind(test$Id, pred_rf))
+colnames(submission) <- c("Id", "SalePrice")
+
+dim(submission) # there should be 1459 rows
+```
+
+```{r eval = FALSE}
+
+write.csv(submission, file = "Kaggle_Submission2.csv", quote=FALSE, row.names=FALSE)
+
+```
+
+
+### Kaggle Results
+
+Username  |  Submission # | Score 
+----------|---------------|--------
+folsom98  | 2             | 0.16427
+
